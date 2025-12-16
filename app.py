@@ -31,7 +31,7 @@ with st.sidebar:
         accept_multiple_files=True
     )
     
-    if uploaded_files:
+    if st.button("Embed resume") and uploaded_files:
         with st.spinner("Processing resume..."):
             for uploaded_file in uploaded_files:
                 if uploaded_file.name not in st.session_state.processed_files:
