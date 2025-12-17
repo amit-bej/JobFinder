@@ -4,7 +4,7 @@ import uuid
 
 def getResponse(input):
     response = ollama.chat(
-        model="gemma3:1b",
+        model="qwen2.5-coder:3b",
         messages=[
             {
                 "role": "user",
