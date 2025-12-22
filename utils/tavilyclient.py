@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 load_dotenv()
 sys.stdout.reconfigure(encoding="utf-8")
 
-def search_python_jobs(prompt,domains: list,max_results=20):
+def tavily_search_jobs(prompt,domains,max_results=20, days=3):
     """
     Searches Python developer jobs using Tavily.
     Returns a list of search results.
@@ -25,7 +25,8 @@ def search_python_jobs(prompt,domains: list,max_results=20):
         query=query,
         search_depth="advanced",
         max_results=max_results,
-        include_domains= domains
+        include_domains= domains,
+        days=days
     )
 
     return response.get("results", [])
@@ -33,10 +34,19 @@ def search_python_jobs(prompt,domains: list,max_results=20):
 
 # Example usage
 if __name__ == "__main__":
-    results = search_python_jobs()
-
-    for idx, result in enumerate(results, start=1):
-        print(f"{idx}. {result.get('title')}")
-        print(f"URL: {result.get('url')}")
-        print(f"Summary: {result.get('content')}")
-        print("-" * 80)
+    prompt = """
+            Python Developer jobs Hyderabad Secunderabad 3 years experience Python AND (Flask OR FastAPI) REST APIs (PostgreSQL OR MySQL) (Pandas OR NumPy) (Docker OR Git)
+"""
+    domains = [
+            "linkedin.com",
+            "naukri.com",
+            "indeed.com",
+            "glassdoor.com"
+        ]
+    results = tavily_search_jobs(prompt,domains)
+    print(results)
+    # for idx, result in enumerate(results, start=1):
+    #     print(f"{idx}. {result.get('title')}")
+    #     print(f"URL: {result.get('url')}")
+    #     print(f"Summary: {result.get('content')}")
+    #     print("-" * 80)
