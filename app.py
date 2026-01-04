@@ -2,13 +2,75 @@
 import streamlit as st
 from utils.Rag import *
 from utils.text_extractor import extract_text_from_file
-from scrapper.scrapper import scrape_naukri
 import pandas as pd
 import json
 import re
 import os
 import io
 import utils.tavilyclient as tavilyclient
+
+
+SKILL_ALIASES = {
+    "python": ["python3", "py"],
+    "javascript": ["js", "ecmascript"],
+    "typescript": ["ts"],
+    "react": ["reactjs", "react.js"],
+    "angular": ["angularjs", "angular.js"],
+    "vue": ["vuejs", "vue.js"],
+    "node": ["nodejs", "node.js"],
+    "postgres": ["postgresql", "psql"],
+    "mysql": ["mariadb"],
+    "mongodb": ["mongo"],
+    "aws": ["amazon web services"],
+    "gcp": ["google cloud", "google cloud platform"],
+    "azure": ["microsoft azure"],
+    "docker": ["containerization"],
+    "kubernetes": ["k8s"],
+    "rest api": ["restful", "rest apis"],
+    "graphql": ["gql"],
+    "machine learning": ["ml"],
+    "artificial intelligence": ["ai"],
+    "natural language processing": ["nlp"],
+    "langchain": ["lang chain"],
+}
+
+SKILL_WEIGHTS = {
+    "python": 3, "java": 3, "javascript": 3, "typescript": 3, "c++": 3, "rust": 3, "go": 3,
+    "django": 2.5, "flask": 2.5, "fastapi": 2.5, "react": 2.5, "angular": 2.5, "vue": 2.5, "spring": 2.5,
+    "postgres": 2, "mysql": 2, "mongodb": 2, "redis": 2, "elasticsearch": 2,
+    "aws": 1.5, "gcp": 1.5, "azure": 1.5, "docker": 1.5, "kubernetes": 1.5,
+    "git": 1, "linux": 1, "jenkins": 1, "jira": 1,
+}
+
+def match_skill_with_boundary(skill, text):
+    """Match skill using word boundaries to avoid partial matches"""
+    pattern = r'\b' + re.escape(skill) + r'\b'
+    return bool(re.search(pattern, text, re.IGNORECASE))
+
+def get_skill_variants(skill):
+    skill_lower = skill.lower()
+    variants = {skill_lower}
+    
+    if skill_lower in SKILL_ALIASES:
+        variants.update(SKILL_ALIASES[skill_lower])
+    
+    for main_skill, aliases in SKILL_ALIASES.items():
+        if skill_lower in aliases or skill_lower == main_skill:
+            variants.add(main_skill)
+            variants.update(aliases)
+    
+    return variants
+
+def calculate_weighted_score(matched_skills):
+    """Calculate weighted score based on skill importance"""
+    score = 0
+    for skill in matched_skills:
+        skill_lower = skill.lower()
+        weight = SKILL_WEIGHTS.get(skill_lower, 1.0)
+        score += weight
+    return round(score, 1)
+
+
 st.set_page_config(page_title="Job Finder Assistant", layout="wide")
 
 st.title("Job Finder Assistant")
@@ -19,8 +81,6 @@ def get_chroma_collection():
 
 collection = get_chroma_collection()
 
-if "messages" not in st.session_state:
-    st.session_state.messages = []
 if "processed_files" not in st.session_state:
     st.session_state.processed_files = set()
 with st.sidebar:
@@ -52,9 +112,6 @@ with st.sidebar:
     for file in st.session_state.processed_files:
         st.caption(f"- {file}")
 
-    # -------------------------------
-    # Job domains selection section
-    # -------------------------------
     st.markdown("---")
     st.header("Job Domains")
 
@@ -110,7 +167,6 @@ if st.session_state.processed_files:
     response_data = st.session_state.resume_data
 
     response_text = response_data["message"]["content"]
-    #print(response_text)
     response_text = re.sub(r'```json\s*|\s*```', '', response_text)
     
     try:
@@ -146,57 +202,29 @@ if st.session_state.processed_files:
         if st.button("Scrape Jobs"):
             with st.spinner(f"Scraping {role_input} jobs in {location_input} ({days_filter} days ago)..."):
                 tavily_response = generateResponse(collection,
-                                            f"""
-                                        You are given the following inputs:
+                                            f"""Generate a job search query for Tavily search engine.
+                                                Inputs:
+                                                - Job Role: {role_input}
+                                                - Location: {location_input}
+                                                - Experience: {resume_experience} years
+                                                - Key Skills: {', '.join(resume_data.get('skills', [])[:5])}
 
-                                        Skills: {resume_data.get('skills')}
-                                        Total experience (years): {resume_experience}
-                                        Job role: {role_input}
-                                        Location: {location_input}
+                                                Rules:
+                                                1. Output ONLY the search query text, nothing else
+                                                2. Format: "[Job Role]" jobs "[Location]" [experience] years [top 3-4 skills]
+                                                3. Keep it concise and search-engine friendly
+                                                4. Do NOT use markdown or explanations
 
-                                        Task:
-                                        Generate a Tavily search query for job searching.
-
-                                        Rules:
-                                        1. Output ONLY the search query text. No explanations, no markdown.
-                                        2. USE QUOTES for the Job Role and Location to find exact matches. Example: "Python Developer" "Hyderabad"
-                                        3. Start with: "<Job role>" jobs in "<Location>"
-                                        4. Include experience: "<Total experience> years" or "<Total experience>+ years"
-                                        5. CRITICAL: Include the top 3-5 most technical skills from the list.
-                                        6. Use Boolean AND/OR logic.
-                                        7. Exclude generic terms like "Communication", "Teamwork".
-                                        8. Format:
-                                           "<Job Role>" jobs "<Location>" "<Experience> years" (<Skill1> OR <Skill2>) (<Skill3> OR <Skill4>)
-
-                                        Example Output:
-                                        "Python Developer" jobs "Hyderabad" "3 years experience" (Django OR Flask) (MySQL OR PostgreSQL) AND "Rest API"
-                                        
-                                        Now generate the robust Tavily query.
-                                        """
-                                        )
+                                                Example output:
+                                                "Python Developer" jobs "Hyderabad" 3+ years Python Django REST API PostgreSQL"""
+                                            )
                 
                 raw_prompt = tavily_response["message"]["content"] if "message" in tavily_response else str(tavily_response)
-                
-                tavily_prompt = re.sub(r'```(?:python)?\s*|\s*```', '', raw_prompt).strip()
-                tavily_prompt = """Python developer jobs in Hyderabad,India.
-                    Profile:
-                    - 3 years experience
-                    - Python, Flask, REST APIs
-                    - PostgreSQL, MySQL
-                    - Pandas, NumPy
-                    - LangChain, RAG, Ollama
-                    - JavaScript.
-                    Roles:
-                    - Python Developer
-                    - Backend Python Engineer
-                    """
-                tavily_prompt = tavily_prompt.replace(" ", "")
+                tavily_prompt = re.sub(r'```(?:python)?\\s*|\\s*```', '', raw_prompt).strip()
                 try:
                     domains = st.session_state.domains
                     
-                    st.markdown("### Debug Log: Tavily Prompt")
-                    with st.expander("Show Generated Search Query"):
-                        st.text(tavily_prompt)
+                    print(f"[DEBUG] Tavily Search Query: {tavily_prompt}")
                         
                     tavily_result = tavilyclient.tavily_search_jobs(
                         tavily_prompt, 
@@ -205,9 +233,7 @@ if st.session_state.processed_files:
                         days=int(days_filter)
                     )
                     
-                    st.markdown(f"### Debug Log: Tavily API Results ({len(tavily_result)} items)")
-                    with st.expander("Show Raw API Result Data"):
-                        st.json(tavily_result)
+                    print(f"[DEBUG] Tavily returned {len(tavily_result)} results")
 
                     if tavily_result:
                         structured_data = []
@@ -215,56 +241,36 @@ if st.session_state.processed_files:
                         stats = {
                             "total_from_tavily": len(tavily_result),
                             "dropped_location_mismatch": 0,
-                            "dropped_domain_mismatch": 0,
-                            "dropped_bad_url_pattern": 0,
                             "dropped_experience_mismatch": 0,
                             "kept": 0
                         }
 
                         for r in tavily_result:
                             content = r.get("content", "")
+                            raw_content = r.get("raw_content", "")
+                            full_content = raw_content if raw_content else content
                             title = r.get("title", "")
+                            result_url = r.get("url", "")
                             
-                            norm_loc = location_input.lower().strip()
-                            norm_content = content.lower()
-                            norm_title = title.lower()
-
-                            if norm_loc not in norm_content and norm_loc not in norm_title:
+                            if location_input.lower() not in (full_content + title).lower():
                                 stats["dropped_location_mismatch"] += 1
-                                continue 
-                            
-                            result_url = r.get("url", "").lower()
-                            domain_match = False
-                            valid_page_type = True
-
-                            for d in domains:
-                                if d.lower() in result_url:
-                                    domain_match = True
-                                    
-                                    if "naukri.com" in d.lower():
-                                        if "job-listings-" not in result_url:
-                                            valid_page_type = False
-                                    
-                                    if "linkedin.com" in d.lower():
-                                        if "/jobs/search" in result_url or "currentjobid" not in result_url and "/jobs/view" not in result_url:
-                                             pass 
-                                    break
-                            
-                            if not domain_match:
-                                stats["dropped_domain_mismatch"] += 1
                                 continue
-
-                            if not valid_page_type:
-                                stats["dropped_bad_url_pattern"] += 1
-                                continue
+                            
+                            stats["kept"] += 1
+                            
                             found_skills = []
+                            search_text = (full_content + " " + title).lower()
+                            
                             for skill in resume_skills:
-                                if skill in norm_content or skill in norm_title:
-                                    found_skills.append(skill.title())
+                                skill_variants = get_skill_variants(skill)
+                                for variant in skill_variants:
+                                    if match_skill_with_boundary(variant, search_text):
+                                        found_skills.append(skill.title())
+                                        break
                             
                             skill_str = ", ".join(found_skills) if found_skills else "See Description"
 
-                            exp_match = re.search(r'(\d+)(\+?|\s*-\s*\d+)\s*years?', content + title, re.IGNORECASE)
+                            exp_match = re.search(r'(\d+)(\+?|\s*-\s*\d+)\s*years?', full_content + title, re.IGNORECASE)
                             experience_str = exp_match.group(0) if exp_match else "NA"
                             
                             keep_job = True
@@ -288,25 +294,40 @@ if st.session_state.processed_files:
                             
                             stats["kept"] += 1
 
+                            company_name = "Unknown"
                             try:
-                                domain_name = result_url.split("//")[-1].split("/")[0].replace("www.", "")
+                                if " - " in title:
+                                    company_name = title.split(" - ")[-1].strip()
+                                elif " at " in title.lower():
+                                    company_name = title.lower().split(" at ")[-1].strip().title()
+                                else:
+                                    company_name = result_url.split("//")[-1].split("/")[0].replace("www.", "")
                             except:
-                                domain_name = "See Link"
+                                company_name = "See Link"
 
                             structured_data.append({
-                                "Company Name": domain_name, 
+                                "Company Name": company_name, 
                                 "Title": title,
                                 "Skill": skill_str,
                                 "Link": r.get("url"),
                                 "Experience": experience_str,
-                                "Description": content
+                                "Description": content[:500] if len(content) > 500 else content
                             })
                         
-                        with st.expander("🔍 Show Filter Details (Why did I lose jobs?)"):
-                            st.write("We filtered out results that didn't match your strict requirements:")
-                            st.json(stats)
+                        print(f"[DEBUG] Filter stats: {stats}")
+                        seen = set()
+                        deduplicated_data = []
+                        for job in structured_data:
+                            key = (job["Title"].lower().strip(), job["Company Name"].lower().strip())
+                            if key not in seen:
+                                seen.add(key)
+                                deduplicated_data.append(job)
                         
-                        st.session_state.jobs_df = pd.DataFrame(structured_data)
+                        duplicates_removed = len(structured_data) - len(deduplicated_data)
+                        if duplicates_removed > 0:
+                            st.info(f"Removed {duplicates_removed} duplicate job(s)")
+                        
+                        st.session_state.jobs_df = pd.DataFrame(deduplicated_data)
                         st.session_state.show_results = True
                         st.success(f"Search completed! Found {len(st.session_state.jobs_df)} jobs (Instant View).")
 
@@ -330,19 +351,22 @@ if st.session_state.processed_files:
                 def calculate_match(row):
                     job_skills_str = str(row["Skill"])
                     
-                    if job_skills_str.upper() == "NA":
+                    if job_skills_str.upper() == "NA" or job_skills_str == "See Description":
                          return 0, [], True
 
                     job_skills = [s.lower().strip() for s in job_skills_str.split(',')]
                     
                     matched_skills = []
                     for rs in resume_skills:
+                        rs_variants = get_skill_variants(rs)
                         for js in job_skills:
-                            if rs in js or js in rs:
-                                if js not in matched_skills:
-                                    matched_skills.append(js)
+                            for variant in rs_variants:
+                                if variant == js or match_skill_with_boundary(variant, js):
+                                    if js not in matched_skills:
+                                        matched_skills.append(js)
+                                    break
                     
-                    skill_score = len(matched_skills)
+                    skill_score = calculate_weighted_score(matched_skills)
                     
                     exp_str = str(row.get("Experience", ""))
                     exp_match = False

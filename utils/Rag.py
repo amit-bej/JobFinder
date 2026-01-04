@@ -1,10 +1,17 @@
 import ollama
 import chromadb
 import uuid
+import os
+from dotenv import load_dotenv
+load_dotenv()
 
 def getResponse(input):
-    response = ollama.chat(
-        model="qwen2.5-coder:3b",
+    client = ollama.Client(
+        host="https://ollama.com",
+        headers={'Authorization': 'Bearer ' + os.getenv('OLLAMA_API_KEY')}
+    )
+    response = client.chat(
+        model="gpt-oss:120b-cloud",
         messages=[
             {
                 "role": "user",
@@ -36,7 +43,6 @@ def chunk_text(text, chunk_size=1000, chunk_overlap=100):
     return chunks
 
 def process_and_store_document(collection, text, batch_size=20):
-
     chunks = chunk_text(text)
     print(f"Split document into {len(chunks)} chunks.")
  
@@ -71,3 +77,4 @@ def generateResponse(collection, query):
     prompt = f"Using this data: {data}. Respond to this prompt: {query}"
     response = getResponse(prompt)
     return response
+
