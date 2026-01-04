@@ -44,6 +44,10 @@ with st.sidebar:
                         st.session_state.processed_files.add(uploaded_file.name)
                         if "resume_data" in st.session_state:
                             del st.session_state.resume_data
+                        if "editable_skills" in st.session_state:
+                            del st.session_state.editable_skills
+                        if "editable_experience" in st.session_state:
+                            del st.session_state.editable_experience
                         st.toast(f"Indexed {uploaded_file.name}")
             
     st.markdown("---")
@@ -74,17 +78,40 @@ if st.session_state.processed_files:
         resume_data = json.loads(response_text)
         st.success("Resume processed successfully!")
         
-        resume_skills = [s.lower().strip() for s in resume_data.get("skills", [])]
-        
+        # Initial parsing of raw AI data for defaults
+        detected_skills = [s.lower().strip() for s in resume_data.get("skills", [])]
         raw_exp = resume_data.get("total_years_experience", 0)
         try:
-            resume_experience = int(float(str(raw_exp)))
+            detected_exp = int(float(str(raw_exp)))
         except:
             nums = re.findall(r'\d+', str(raw_exp))
-            resume_experience = int(nums[0]) if nums else 0
+            detected_exp = int(nums[0]) if nums else 0
+            
+        # Initialize editable state if not present (only on first load after upload)
+        if "editable_skills" not in st.session_state:
+            st.session_state.editable_skills = ", ".join(resume_data.get("skills", []))
+        if "editable_experience" not in st.session_state:
+            st.session_state.editable_experience = detected_exp
+            
+        st.subheader("Review & Edit Resume Details")
+        st.caption("AI extracted these values. You can edit them below to improve search results.")
         
-        st.write(f"**Detected Skills:** {', '.join(resume_data.get('skills', []))}")
-        st.write(f"**Detected Experience:** {resume_experience} years")
+        # Editable Widgets
+        col_edit1, col_edit2 = st.columns([2, 1])
+        with col_edit1:
+            edited_skills_str = st.text_area("Skills (Comma separated)", value=st.session_state.editable_skills, height=100)
+            st.session_state.editable_skills = edited_skills_str
+            
+        with col_edit2:
+            edited_exp = st.number_input("Total Experience (Years)", value=st.session_state.editable_experience, min_value=0)
+            st.session_state.editable_experience = edited_exp
+            
+        # Update validation variables with USER EDITED values
+        resume_skills = [s.strip().lower() for s in edited_skills_str.split(",") if s.strip()]
+        resume_experience = edited_exp
+        
+        st.write(f"**Using Skills:** {len(resume_skills)} items")
+        st.write(f"**Using Experience:** {resume_experience} years")
         
         st.markdown("### Scrape Settings")
         col1, col2, col3= st.columns(3)

@@ -1,10 +1,21 @@
 import ollama
 import chromadb
 import uuid
+import os
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 def getResponse(input):
-    response = ollama.chat(
-        model="gemma3:1b",
+    apikey = os.getenv('OLLAMA_API_KEY')
+    print(apikey)
+    client = ollama.Client(
+        host="https://ollama.com",
+        headers={'Authorization': 'Bearer ' + os.getenv('OLLAMA_API_KEY')}
+    )
+    response = client.chat(
+        model="gpt-oss:120b-cloud",
         messages=[
             {
                 "role": "user",
